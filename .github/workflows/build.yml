@@ -14,6 +14,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y git wget pv
+
       - name: Run command
         run: cd wax && sudo bash wax.sh
         # working-directory defaults to the repo root
