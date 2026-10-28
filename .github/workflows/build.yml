@@ -54,7 +54,11 @@ jobs:
             matrix="$(printf '%s\n' "${selected[@]}" | jq -R . | jq -s '{board: .}')"
           fi
 
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          {
+          echo "matrix<<EOF"
+          echo "$matrix"
+          echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   run:
     needs: prepare
