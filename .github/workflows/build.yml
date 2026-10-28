@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run command
-        run: sudo bash /wax/wax.sh
+        run: cd wax && sudo bash wax.sh
         # working-directory defaults to the repo root
 
       - name: Upload results
