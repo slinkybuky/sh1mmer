@@ -1,77 +1,28 @@
-
-name: SH1MMER Build Validation
+name: Run command and upload results
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - ".github/workflows/sh1mmer-build.yml"
-
-permissions:
-  contents: read
+    branches: [beautifulworld]
+  pull_request:
+  workflow_dispatch:   # lets you run it manually from the Actions tab
 
 jobs:
-  validate:
-    name: Validate ${{ matrix.board }}
-    runs-on: ubuntu-24.04
-
-    strategy:
-      fail-fast: false
-      matrix:
-        board:
-          - dedede
-          - octopus
-          - coral
-          - grunt
-          - nissa
-          - zork
+  run:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout workflow repository
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install build prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git \
-            wget \
-            curl \
-            xz-utils \
-            gdisk \
-            e2fsprogs \
-            util-linux \
-            coreutils
+      - name: Run command
+        run: sudo bash /wax/wax.sh
+        # working-directory defaults to the repo root
 
-      - name: Checkout SH1MMER source
-        uses: actions/checkout@v4
-        with:
-          repository: MercuryWorkshop/sh1mmer
-          ref: beautifulworld
-          path: sh1mmer-source
-          persist-credentials: false
-
-      - name: Record source and target metadata
-        env:
-          BOARD: ${{ matrix.board }}
-        run: |
-          mkdir -p "validation/${BOARD}"
-          {
-            echo "Board: ${BOARD}"
-            echo "Source: MercuryWorkshop/sh1mmer"
-            echo "Profile: Beautiful World"
-            echo "Commit: $(git -C sh1mmer-source rev-parse HEAD)"
-            echo "Runner: Ubuntu 24.04"
-            echo "Date: $(date -u +%FT%TZ)"
-          } > "validation/${BOARD}/build-info.txt"
-
-          test -f sh1mmer-source/wax/wax.sh
-          git -C sh1mmer-source status --short
-
-      - name: Upload validation artifact
+      - name: Upload results
+        if: always()   # upload even if the command fails
         uses: actions/upload-artifact@v4
         with:
-          name: sh1mmer-validation-${{ matrix.board }}
-          path: validation/${{ matrix.board }}/
-          if-no-files-found: error
-          retention-days: 7
+          name: results
+          path: results/
+          if-no-files-found: warn
+          retention-days: 14
