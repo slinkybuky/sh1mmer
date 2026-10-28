@@ -1,31 +1,69 @@
-name: Run command and upload results
+
+name: Download, Extract, and Run Example
 
 on:
   push:
     branches: [beautifulworld]
   pull_request:
-  workflow_dispatch:   # lets you run it manually from the Actions tab
+  workflow_dispatch:
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [dedede, octopus, coral, grunt, nissa, zork]
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y git wget pv
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y wget unzip file
 
-      - name: Run command
-        run: cd wax && sudo bash wax.sh
-        # working-directory defaults to the repo root
+      - name: Download and extract shim
+        env:
+          BOARD: ${{ matrix.board }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          zip_file="$RUNNER_TEMP/${BOARD}.zip"
+          extract_dir="$RUNNER_TEMP/${BOARD}"
+
+          mkdir -p "$extract_dir" inputs results
+
+          wget -O "$zip_file" \
+            "https://dl.cros.download/files/${BOARD}/${BOARD}.zip"
+
+          unzip -o "$zip_file" -d "$extract_dir"
+
+          asset="$(find "$extract_dir" -type f -name '*.bin' -print -quit)"
+
+          if [[ -z "$asset" ]]; then
+            echo "No .bin file found for ${BOARD}"
+            exit 1
+          fi
+
+          cp "$asset" "inputs/${BOARD}.bin"
+          file "inputs/${BOARD}.bin"
+
+      - name: Run example command
+        env:
+          BOARD: ${{ matrix.board }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          input_file="inputs/${BOARD}.bin"
+          sudo bash wax/wax.sh -i "$input_file"
 
       - name: Upload results
-        if: always()   # upload even if the command fails
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: results
+          name: results-${{ matrix.board }}
           path: results/
           if-no-files-found: warn
           retention-days: 14
