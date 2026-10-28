@@ -3,8 +3,6 @@ name: Download, Extract, and Run Example
 
 on:
   push:
-    branches: [beautifulworld]
-  pull_request:
   workflow_dispatch:
     inputs:
       boards:
@@ -107,7 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash wax/wax.sh -i "inputs/${BOARD}.bin"
+          sudo bash wax/wax.sh -i "inputs/${BOARD}.bin"
 
       - name: Upload results
         if: always()
