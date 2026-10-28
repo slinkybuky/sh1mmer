@@ -6,22 +6,72 @@ on:
     branches: [beautifulworld]
   pull_request:
   workflow_dispatch:
+    inputs:
+      boards:
+        description: "Boards to build: all, or comma-separated board names"
+        required: true
+        default: "all"
+        type: string
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Select boards
+        id: set-matrix
+        env:
+          BOARDS: ${{ inputs.boards }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" != "workflow_dispatch" || "$BOARDS" == "all" || -z "$BOARDS" ]]; then
+            matrix='{"board":["dedede","octopus","coral","grunt","nissa","zork"]}'
+          else
+            IFS=',' read -ra requested <<< "$BOARDS"
+            selected=()
+
+            for board in "${requested[@]}"; do
+              board="$(printf '%s' "$board" | xargs)"
+
+              case "$board" in
+                dedede|octopus|coral|grunt|nissa|zork)
+                  selected+=("$board")
+                  ;;
+                *)
+                  echo "Invalid board: $board"
+                  exit 1
+                  ;;
+              esac
+            done
+
+            if [[ ${#selected[@]} -eq 0 ]]; then
+              echo "No boards selected"
+              exit 1
+            fi
+
+            matrix="$(printf '%s\n' "${selected[@]}" | jq -R . | jq -s '{board: .}')"
+          fi
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   run:
+    needs: prepare
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
-      matrix:
-        board: [dedede, octopus, coral, grunt, nissa, zork]
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y wget unzip file
+        run: sudo apt-get update && sudo apt-get install -y curl unzip file pv
 
       - name: Download and extract shim
         env:
@@ -35,10 +85,11 @@ jobs:
 
           mkdir -p "$extract_dir" inputs results
 
-          wget -O "$zip_file" \
+          curl -fsSL --retry 3 \
+            -o "$zip_file" \
             "https://dl.cros.download/files/${BOARD}/${BOARD}.zip"
 
-          unzip -o "$zip_file" -d "$extract_dir"
+          unzip -o "$zip_file" -d "$extract_dir" >/dev/null
 
           asset="$(find "$extract_dir" -type f -name '*.bin' -print -quit)"
 
@@ -48,7 +99,7 @@ jobs:
           fi
 
           cp "$asset" "inputs/${BOARD}.bin"
-          file "inputs/${BOARD}.bin"
+          echo "Extracted ${BOARD}.bin"
 
       - name: Run example command
         env:
@@ -56,8 +107,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          input_file="inputs/${BOARD}.bin"
-          sudo bash wax/wax.sh -i "$input_file"
+          bash wax/wax.sh -i "inputs/${BOARD}.bin"
 
       - name: Upload results
         if: always()
