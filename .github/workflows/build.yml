@@ -1,0 +1,77 @@
+
+name: SH1MMER Build Validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/sh1mmer-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate ${{ matrix.board }}
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          - dedede
+          - octopus
+          - coral
+          - grunt
+          - nissa
+          - zork
+
+    steps:
+      - name: Checkout workflow repository
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git \
+            wget \
+            curl \
+            xz-utils \
+            gdisk \
+            e2fsprogs \
+            util-linux \
+            coreutils
+
+      - name: Checkout SH1MMER source
+        uses: actions/checkout@v4
+        with:
+          repository: MercuryWorkshop/sh1mmer
+          ref: beautifulworld
+          path: sh1mmer-source
+          persist-credentials: false
+
+      - name: Record source and target metadata
+        env:
+          BOARD: ${{ matrix.board }}
+        run: |
+          mkdir -p "validation/${BOARD}"
+          {
+            echo "Board: ${BOARD}"
+            echo "Source: MercuryWorkshop/sh1mmer"
+            echo "Profile: Beautiful World"
+            echo "Commit: $(git -C sh1mmer-source rev-parse HEAD)"
+            echo "Runner: Ubuntu 24.04"
+            echo "Date: $(date -u +%FT%TZ)"
+          } > "validation/${BOARD}/build-info.txt"
+
+          test -f sh1mmer-source/wax/wax.sh
+          git -C sh1mmer-source status --short
+
+      - name: Upload validation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sh1mmer-validation-${{ matrix.board }}
+          path: validation/${{ matrix.board }}/
+          if-no-files-found: error
+          retention-days: 7
