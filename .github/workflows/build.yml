@@ -10,22 +10,25 @@ on:
         default: "all"
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+
     steps:
       - name: Select boards
         id: set-matrix
         env:
           BOARDS: ${{ inputs.boards }}
-          EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ "$EVENT_NAME" != "workflow_dispatch" || "$BOARDS" == "all" || -z "$BOARDS" ]]; then
+          if [[ "$BOARDS" == "all" || -z "$BOARDS" ]]; then
             matrix='{"board":["dedede","octopus","coral","grunt","nissa","zork"]}'
           else
             IFS=',' read -ra requested <<< "$BOARDS"
@@ -52,12 +55,13 @@ jobs:
               exit 1
             fi
 
-            matrix="$(printf '%s\n' "${selected[@]}" | jq -R . | jq -s '{board: .}')"
+            matrix="$(printf '%s\n' "${selected[@]}" | jq -R . | jq -cs '{board: .}')"
           fi
 
+          echo "Selected matrix: $matrix"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
-  run:
+  build:
     needs: prepare
     runs-on: ubuntu-latest
 
@@ -70,11 +74,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y curl unzip file pv
+          sudo apt-get install -y curl unzip file pv jq
 
-      - name: Download and extract shim
+      - name: Download and extract firmware
         env:
           BOARD: ${{ matrix.board }}
         shell: bash
@@ -85,24 +91,28 @@ jobs:
           zip_file="$RUNNER_TEMP/${BOARD}.zip"
           extract_dir="$RUNNER_TEMP/${BOARD}"
 
-          curl -fsSL --retry 3 \
+          curl -fL --retry 3 --retry-delay 2 \
             -o "$zip_file" \
             "https://dl.cros.download/files/${BOARD}/${BOARD}.zip"
 
+          mkdir -p "$extract_dir"
           unzip -o "$zip_file" -d "$extract_dir" >/dev/null
 
           asset="$(find "$extract_dir" -type f -name '*.bin' -print -quit)"
 
           if [[ -z "$asset" ]]; then
-            echo "::error::No .bin file found for ${BOARD}"
+            echo "::error::No .bin image found for ${BOARD}"
             exit 1
           fi
 
           cp "$asset" "inputs/${BOARD}-original.bin"
           cp "inputs/${BOARD}-original.bin" "inputs/${BOARD}.bin"
 
-          echo "Downloaded and copied ${BOARD} image."
-          ls -lh "inputs/${BOARD}-original.bin" "inputs/${BOARD}.bin"
+          echo "Original image:"
+          ls -lh "inputs/${BOARD}-original.bin"
+
+          echo "Working image:"
+          ls -lh "inputs/${BOARD}.bin"
 
       - name: Patch image with wax
         env:
@@ -114,17 +124,22 @@ jobs:
           sudo bash wax/wax.sh -i "inputs/${BOARD}.bin"
 
           if [[ ! -s "inputs/${BOARD}.bin" ]]; then
-            echo "::error::Patched image is missing or empty"
+            echo "::error::Wax did not produce a non-empty patched image"
+            exit 1
+          fi
+
+          if cmp -s "inputs/${BOARD}-original.bin" "inputs/${BOARD}.bin"; then
+            echo "::error::The image is unchanged after running wax"
             exit 1
           fi
 
           cp "inputs/${BOARD}.bin" "results/${BOARD}-sh1mmer.bin"
 
-          echo "Patched image ready:"
+          echo "Patched image:"
+          file "results/${BOARD}-sh1mmer.bin"
           ls -lh "results/${BOARD}-sh1mmer.bin"
 
       - name: Upload patched image
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: sh1mmer-${{ matrix.board }}
